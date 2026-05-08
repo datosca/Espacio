@@ -429,7 +429,7 @@ if (rocket.mission === "flyby" && rocket.passedMoon) {
 
     if (rocket.mission === "dro") {
       rocket.droTime++;
-      if (rocket.droTime > 100) {
+      if (rocket.droTime > 300) {
         rocket.mission = "return";
         orbitaImageContainer.style.display = "none";
       }
