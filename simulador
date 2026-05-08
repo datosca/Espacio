@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Artemis Game - DRO Mission</title>
+  <style>
+    body {
+      margin: 0;
+      background: black;
+      display: flex;
+      height: 100vh;
+      color: white;
+      font-family: Arial;
+    }
+
+    canvas {
+      width: 1000px;
+      height: 800px;
+      flex-shrink: 0;
+    }
+
+    .panel {
+      width: 220px;
+      background: #111;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      gap: 30px;
+    }
+
+    button {
+      padding: 12px;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      background: #222;
+      color: white;
+      font-size: 16px; /* letras más grandes */
+      font-weight: bold; /* opcional: más visibles */
+    }
+
+    button:hover {
+      background: #333;
+    }
+
+    .spaced {
+      margin-top: 20px;
+    }
+
+    .spaced1 {
+      margin-top: 20px;
+    }
+
+    #comentarios {
+  font-size: 24px;   /* más grande */
+  font-weight: bold; /* más visible */
+  line-height: 1.4;
+}
+  </style>
+
+<script 
+src="https://www.paypal.com/sdk/js?client-id=BAAK5R2AnGKkj8Ys1_se8S9jdSNhUMBrPuaqzeK0C-3PiiYIRZdPdxYMQML4_mtl2ases7DD1wMuccKmCo&components=hosted-buttons&disable-funding=venmo&currency=USD">
+</script>
+
+</head>
+
+<body>
+
+<canvas id="game" width="1000" height="800"></canvas>
+
+<div class="panel">
+  <div id="comentarios" class="spaced"></div>
+  <button id="launchBtn" class="spaced">🚀 Lanzar</button>
+  <button id="despegueBtn" style="display:none;">🚀 DESPEGUE</button>
+  <button id="tliBtn" style="display:none;">🌙 Inyección translunar (TLI) </button>
+  <div id="flybyImageContainer" style="display:none;" class="spaced">
+  <img
+    id="flybyImage"
+    src="flyby.png"
+    alt="Flyby Lunar"
+    style="width:100%; border-radius:8px;">
+  </div>
+ <div id="orbitaImageContainer" style="display:none;" class="spaced">
+  <img
+    id="OrImage"
+    src="paso.png"
+    alt="Órbita Lunar"
+    style="width:100%; border-radius:8px;">
+  </div>
+ <div id="amerizajeImageContainer" style="display:none;">
+  <img
+    id="AmeriImage"
+    src="amerizaje.png"
+    alt="Órbita Lunar"
+    style="width:100%; border-radius:8px;">
+  </div>
+
+   <button id="Reini" class="spaced" style="display:none;">Reiniciar</button>
+  <div id="paypal-container-ZW7PFUE9GZDGN" class="spaced" style="display:none;"></div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let earth = { x: 450, y: 340, r: 20, mass: 900 };
+let timeScale = 0.3;
+
+let distancia = 330;
+let moon = {
+  y: earth.y - distancia,
+  x: earth.x,
+  vy: 0,
+  vx: -Math.sqrt(earth.mass / distancia)*0.97,
+  r: 5.4,
+  mass: 20
+};
+
+let rocket = {
+  x: earth.x,
+  y: earth.y - earth.r,
+  vx: 0,
+  vy: 0,
+  launched: false,
+  phase: 0,
+  mission: "ground",
+  tliReady: false,
+  doTLI: false,
+  droTime: 0,
+  passedMoon: false,
+  minDistM: 999999,
+  lunarOrbitSet: false,
+  lunarCaptureDone: false
+ 
+};
+
+let earthImg = new Image();
+earthImg.src = "Earth.jpg";
+let earthReady = false;
+earthImg.onload = () => earthReady = true;
+
+function gravity(body, obj) {
+  let dx = body.x - obj.x;
+  let dy = body.y - obj.y;
+  let dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 0.001) return;
+
+  let force = body.mass / (dist * dist);
+
+  obj.vx += (dx / dist) * force * timeScale;
+  obj.vy += (dy / dist) * force * timeScale;
+}
+
+// Despegue 
+const despegueBtn = document.getElementById("despegueBtn");
+const flybyImageContainer = document.getElementById("flybyImageContainer");
+
+let countdown = 0;
+let counting = false;
+
+const audioLaunch = new Audio("conteo.m4a");
+launchBtn.onclick = () => {
+  countdown = 6;
+  audioLaunch.play();
+  counting = true;
+  despegueBtn.style.display = "none";
+  launchBtn.style.display = "none";
+  rocket.launched = false;
+  rocket.phase = 0;
+};
+
+// cuando termina la cuenta aparece DESPEGUE
+const audioLaunch2 = new Audio("despegue.m4a");
+const audioamerizaje = new Audio("amerizaje.m4a");
+despegueBtn.onclick = () => {
+  audioLaunch2.play();
+  rocket.launched = true;
+  rocket.phase = 1;
+  counting = false;
+  despegueBtn.style.display = "none";
+  tliBtn.style.display = "block";
+};
+
+
+tliBtn.onclick = () => {
+  if (rocket.mission === "orbit" && rocket.tliReady) {
+    rocket.doTLI = true;
+    tliBtn.style.display = "none";
+  }
+};
+
+Reini.onclick = () => location.reload();
+
+function drawTrajectory(obj) {
+  let sim = {...obj};
+
+  ctx.beginPath();
+  ctx.strokeStyle = "rgba(255,255,255,0.3)";
+
+  for (let i = 0; i < 400; i++) {
+
+    gravity(earth, sim);
+    gravity(moon, sim);
+
+    sim.x += sim.vx * timeScale;
+    sim.y += sim.vy * timeScale;
+
+    if (i === 0) ctx.moveTo(sim.x, sim.y);
+    else ctx.lineTo(sim.x, sim.y);
+  }
+
+  ctx.stroke();
+}
+
+function drawTLIIndicator() {
+  if (rocket.mission !== "orbit") return;
+
+  let ex = moon.x - earth.x;
+  let ey = moon.y - earth.y;
+  let ed = Math.sqrt(ex*ex + ey*ey);
+  ex/=ed; ey/=ed;
+
+  let rx = rocket.x - earth.x;
+  let ry = rocket.y - earth.y;
+  let rd = Math.sqrt(rx*rx + ry*ry);
+  rx/=rd; ry/=rd;
+
+  let dot = ex*rx + ey*ry;
+
+  let idealX = earth.x - ex * 80;
+  let idealY = earth.y - ey * 80;
+
+  let ready = dot < -0.9;
+
+  ctx.beginPath();
+  ctx.arc(idealX, idealY, 6, 0, Math.PI*2);
+  ctx.fillStyle = ready ? "lime" : "red";
+  ctx.fill();
+
+  ctx.fillStyle = ready ? "lime" : "white";
+  ctx.font = "20px Arial";
+  ctx.fillText(ready ? "🚀 PRESIONA TLI" : "Alineando...", 90, 50);
+
+  rocket.tliReady = ready;
+}
+
+function update() {
+
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Cuenta regresiva
+if (counting && countdown > 0) {
+  countdown -= 1 / 60;
+}
+
+if (counting && countdown <= 0) {
+  countdown = 0;
+  counting = false;
+
+  // aparece botón DESPEGUE
+  despegueBtn.style.display = "block";
+}
+
+if (counting) {
+  ctx.fillStyle = "white";
+  ctx.font = "bold 34px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(
+    "Cuenta regresiva: " + Math.ceil(countdown),
+    canvas.width / 2, 80
+  );
+}
+
+if (despegueBtn.style.display === "block") {
+  ctx.fillStyle = "lime" ;
+  ctx.font = "20px Arial";
+  ctx.fillText( "DESPEGUE",90,50);
+}
+
+  if (rocket.launched) drawTrajectory(rocket);
+
+  if (earthReady) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(earth.x, earth.y, earth.r, 0, Math.PI*2);
+    ctx.clip();
+    ctx.drawImage(earthImg, earth.x-earth.r, earth.y-earth.r, earth.r*2, earth.r*2);
+    ctx.restore();
+  }
+
+  gravity(earth, moon);
+  moon.x += moon.vx * timeScale;
+  moon.y += moon.vy * timeScale;
+
+  ctx.beginPath();
+  ctx.arc(moon.x, moon.y, moon.r, 0, Math.PI*2);
+  ctx.fillStyle = "gray";
+  ctx.fill();
+
+  drawTLIIndicator();
+
+  if (!rocket.launched) {
+    rocket.x = earth.x;
+    rocket.y = earth.y - earth.r;
+  }
+
+  if (rocket.launched) {
+
+    let dx = rocket.x - earth.x;
+    let dy = rocket.y - earth.y;
+    let dist = Math.sqrt(dx*dx + dy*dy);
+
+    let dxm = rocket.x - moon.x;
+    let dym = rocket.y - moon.y;
+    let distM = Math.sqrt(dxm*dxm + dym*dym);
+
+    // atmósfera
+    if (dist < earth.r + 40) {
+      let factor = (earth.r + 40 - dist) / 40;
+      rocket.vx *= 1 - 0.08 * factor;
+      rocket.vy *= 1 - 0.08 * factor;
+    }
+
+    if (rocket.phase === 1) {
+      rocket.vy -= 0.9;
+      rocket.vx = 0.8;
+      if (dist > earth.r + 60) {
+        rocket.phase = 2;
+        rocket.mission = "orbit";
+      }
+    }
+
+    if (rocket.phase === 2 && !rocket.orbitSet) {
+      let target = earth.r + 50;
+      let nx = dx / dist;
+      let ny = dy / dist;
+
+      rocket.x = earth.x + nx * target;
+      rocket.y = earth.y + ny * target;
+
+      let v = Math.sqrt(earth.mass / target);
+      rocket.vx = -ny * v;
+      rocket.vy = nx * v;
+
+      rocket.orbitSet = true;
+    }
+
+    if (rocket.doTLI) {
+      let t = 400;
+      let futureX = moon.x + moon.vx * t;
+      let futureY = moon.y + moon.vy * t;
+
+      let dxT = futureX - rocket.x;
+      let dyT = futureY - rocket.y;
+      let distT = Math.sqrt(dxT*dxT + dyT*dyT);
+
+      let dirX = dxT / distT;
+      let dirY = dyT / distT;
+
+      rocket.vx += dirX * 0.93;
+      rocket.vy += dirY * 0.93;
+
+      rocket.mission = "transfer";
+      rocket.doTLI = false;
+    }
+
+    if (rocket.mission === "transfer") {
+      let t = 150;
+      let targetX = moon.x + moon.vx * t;
+      let targetY = moon.y + moon.vy * t;
+
+      let dx = targetX - rocket.x;
+      let dy = targetY - rocket.y;
+      let dist = Math.sqrt(dx*dx + dy*dy);
+
+      let dirX = dx / dist;
+      let dirY = dy / dist;
+
+      rocket.vx += dirX * 0.0095;
+      rocket.vy += dirY * 0.0095;
+    }
+
+if (rocket.mission === "transfer" || rocket.mission === "flyby") {
+  if (distM < rocket.minDistM) {
+    rocket.minDistM = distM;
+  }
+
+  // marca que ya pasó el punto más cercano
+  if (distM > rocket.minDistM + 10) {
+    rocket.passedMoon = true;
+  }
+}
+   
+  if (rocket.mission === "transfer" && distM < 100) {
+      rocket.mission = "flyby";
+      tliBtn.style.display = "none";
+      flybyImageContainer.style.display = "block";
+    }
+
+if (rocket.mission === "flyby" && rocket.passedMoon) {
+
+  let dxm = rocket.x - moon.x;
+  let dym = rocket.y - moon.y;
+  let distM = Math.sqrt(dxm*dxm + dym*dym);
+  flybyImageContainer.style.display = "none";
+  orbitaImageContainer.style.display = "block";
+  // SOLO capturar si ya está estable
+  if (distM < 120 && distM > 60) {
+
+    let target = 70;
+
+    let nx = dxm / distM;
+    let ny = dym / distM;
+
+    rocket.x = moon.x + nx * target;
+    rocket.y = moon.y + ny * target;
+
+    let v = Math.sqrt(moon.mass / target) * 0.7;
+
+    rocket.vx = ny * v;
+    rocket.vy = -nx * v;
+
+    rocket.lunarCaptureDone = true;
+
+    // aquí SÍ cambias misión
+    rocket.mission = "dro";
+  }
+}
+
+    if (rocket.mission === "dro") {
+      rocket.droTime++;
+      if (rocket.droTime > 100) {
+        rocket.mission = "return";
+        orbitaImageContainer.style.display = "none";
+      }
+    }
+
+
+if (rocket.mission === "return" && dist < earth.r + 5) {
+  rocket.mission = "completed";
+  Reini.style.display = "block";
+  rocket.returnLocked = true;
+  rocket.vx = 0;
+  rocket.vy = 0;
+
+  // fijarlo cerca de la Tierra
+  rocket.x = earth.x;
+  rocket.y = earth.y;
+
+  // mostrar imagen de amerizaje
+  amerizajeImageContainer.style.display = "block";
+
+  // reproducir audio
+  audioamerizaje.play();
+
+  // cuando termine el audio
+  audioamerizaje.onended = () => {
+    // ocultar imagen
+    amerizajeImageContainer.style.display = "none";
+    rocket.mission = "finished"
+  };
+}
+
+if (
+  rocket.mission !== "completed" &&
+  rocket.mission !== "finished"
+) {
+  gravity(earth, rocket);
+  gravity(moon, rocket);
+
+  rocket.x += rocket.vx * timeScale;
+  rocket.y += rocket.vy * timeScale;
+}
+  }
+
+  ctx.fillStyle = "red";
+  ctx.fillRect(rocket.x, rocket.y, 6, 6);
+
+  requestAnimationFrame(update);
+  actualizarComentarioSegunFase();
+}
+
+update();
+</script>
+
+<script>
+let uiState = "";
+const comentarios = document.getElementById("comentarios");
+const paypalContainer = document.getElementById("paypal-container-ZW7PFUE9GZDGN");
+
+let botonPaypalCargado = false;
+
+function actualizarComentarioSegunFase() {
+  let texto = "";
+
+  if (counting) {texto = "Cuenta regresiva...";}
+  else if (despegueBtn.style.display === "block") {texto = "Ahora...";}
+  else if (!rocket.launched) texto = "Listo para el lanzamiento? 🚀";
+  else if (rocket.phase === 1) texto = "Ascendiendo...";
+  else if (rocket.mission === "orbit") texto = rocket.tliReady ? "!Ahora, Ahora! presiona TLI para la inyección" : "Realizando maniobras de ajuste...";
+  else if (rocket.mission === "transfer") texto = "Transferencia...";
+  else if (rocket.mission === "flyby") texto = "Flyby lunar... Los astronautas están entrando en orbita lunar";
+  else if (rocket.mission === "dro") texto = "Órbita DRO... Enviaron fotos";
+  else if (rocket.mission === "return") texto = "Regresando...";
+  else if (rocket.mission === "completed") texto = "Misión completada, los astronautas regresan a casa 🚀";
+  else if (rocket.mission === "finished") texto = "Si te gustó síguenos en Youtube como DatosCA o déjanos una propina aquí abajo ;)";
+
+  if (texto !== uiState) {
+    comentarios.innerText = texto;
+    uiState = texto;
+  }
+
+  if (rocket.mission === "completed" && !botonPaypalCargado) {
+    paypalContainer.style.display = "block";
+    paypal.HostedButtons({ hostedButtonId: "ZW7PFUE9GZDGN" })
+      .render("#paypal-container-ZW7PFUE9GZDGN");
+    botonPaypalCargado = true;
+  }
+}
+</script>
+
+</body>
+</html>
